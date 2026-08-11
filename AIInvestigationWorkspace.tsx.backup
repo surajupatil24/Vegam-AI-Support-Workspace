@@ -1,0 +1,700 @@
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react'
+import { useRouter } from 'next/router'
+import { type IconType } from 'react-icons'
+import {
+  LuActivity,
+  LuArrowLeft,
+  LuArrowUpRight,
+  LuBadgeHelp,
+  LuBarChart3,
+  LuBell,
+  LuBookMarked,
+  LuBot,
+  LuBrainCircuit,
+  LuCheck,
+  LuChevronDown,
+  LuChevronLeft,
+  LuChevronRight,
+  LuClipboardList,
+  LuClock3,
+  LuCode2,
+  LuCopy,
+  LuDownload,
+  LuFileCode2,
+  LuFileSearch,
+  LuFileText,
+  LuFolderKanban,
+  LuHourglass,
+  LuLayoutGrid,
+  LuLogOut,
+  LuMenu,
+  LuMoreHorizontal,
+  LuPaperclip,
+  LuPanelLeft,
+  LuPanelRight,
+  LuPencilLine,
+  LuPlus,
+  LuRefreshCw,
+  LuSearch,
+  LuSendHorizonal,
+  LuSettings,
+  LuShieldCheck,
+  LuSparkles,
+  LuTicket,
+  LuUsers,
+} from 'react-icons/lu'
+
+import { useAuthStore } from '@/lib/store'
+
+type TicketPriorityTone = 'critical' | 'high' | 'medium'
+type TicketTracker = 'Bug' | 'SR'
+type TabId = 'investigation' | 'ai-report' | 'conversation' | 'timeline' | 'attachments' | 'history'
+type MobilePanelId = 'ticket' | 'investigation' | 'evidence'
+type StepStatus = 'completed' | 'active' | 'pending' | 'waiting'
+type InvestigationStage = 'analysis' | 'verification' | 'reporting' | 'completed'
+type CardIconKey = 'knowledge' | 'code' | 'chatgpt' | 'claude' | 'report'
+type SidebarIconKey = 'home' | 'team' | 'tickets' | 'investigation' | 'reports' | 'knowledge' | 'settings'
+
+interface SupportComment {
+  id: string
+  author: string
+  badge: string
+  content: string
+  timestamp: string
+}
+
+interface WorkspaceFile {
+  id: string
+  name: string
+  size: string
+  kind: 'text' | 'image' | 'log' | 'device'
+}
+
+interface SimilarTicket {
+  id: string
+  title: string
+  similarity: number
+}
+
+interface InvestigationStepData {
+  id: string
+  label: string
+  status: StepStatus
+  timestamp?: string
+}
+
+interface InvestigationCardData {
+  id: string
+  title: string
+  description: string
+  status: StepStatus
+  icon: CardIconKey
+}
+
+interface ConversationEntry {
+  id: string
+  sender: 'engineer' | 'ai'
+  name: string
+  message: string
+  timestamp: string
+}
+
+interface TimelineEvent {
+  id: string
+  time: string
+  title: string
+  detail: string
+  status: StepStatus
+}
+
+interface HistoryEvent {
+  id: string
+  time: string
+  actor: string
+  title: string
+  detail: string
+}
+
+interface AIReportData {
+  issueSummary: string
+  possibleRootCause: string
+  confidence: number
+  evidence: string[]
+  similarTickets: string[]
+  codeReferences: string[]
+  recommendedInvestigation: string[]
+  recommendedFix: string[]
+  clientResponse: string
+  redmineUpdate: string
+  closureComment: string
+}
+
+interface InvestigationTicket {
+  id: string
+  number: string
+  title: string
+  tracker: TicketTracker
+  priorityLabel: string
+  priorityTone: TicketPriorityTone
+  project: string
+  module: string
+  statusLabel: string
+  assignedTo: string
+  createdAt: string
+  updatedAt: string
+  createdRelative: string
+  updatedRelative: string
+  description: string
+  comments: SupportComment[]
+  attachments: WorkspaceFile[]
+  logs: WorkspaceFile[]
+  similarTickets: SimilarTicket[]
+  keyInsights: string[]
+  relatedModules: string[]
+  steps: InvestigationStepData[]
+  investigationCards: InvestigationCardData[]
+  report: AIReportData
+  conversation: ConversationEntry[]
+  timeline: TimelineEvent[]
+  history: HistoryEvent[]
+}
+
+interface WorkspaceTab {
+  id: TabId
+  label: string
+}
+
+interface WorkspaceSidebarItem {
+  id: string
+  label: string
+  icon: SidebarIconKey
+}
+
+interface AIInvestigationWorkspaceProps {
+  initialTicketId?: string
+}
+
+interface TicketHeaderProps {
+  ticket: InvestigationTicket
+}
+
+interface TicketCarouselProps {
+  tickets: InvestigationTicket[]
+  selectedTicketId: string
+  onSelectTicket: (ticketId: string) => void
+}
+
+interface TicketCardProps {
+  ticket: InvestigationTicket
+  isSelected: boolean
+  onClick: () => void
+}
+
+interface TicketDetailsProps {
+  ticket: InvestigationTicket
+}
+
+interface InvestigationTabsProps {
+  activeTab: TabId
+  onTabChange: (tabId: TabId) => void
+}
+
+interface InvestigationProgressProps {
+  steps: InvestigationStepData[]
+}
+
+interface InvestigationStepProps {
+  step: InvestigationStepData
+  isLast: boolean
+}
+
+interface InvestigationCardProps {
+  card: InvestigationCardData
+}
+
+interface EvidencePanelProps {
+  ticket: InvestigationTicket
+}
+
+interface SimilarTicketsProps {
+  tickets: SimilarTicket[]
+}
+
+interface KeyInsightsProps {
+  insights: string[]
+}
+
+interface RelatedModulesProps {
+  modules: string[]
+}
+
+interface AttachmentsPanelProps {
+  title: string
+  files: WorkspaceFile[]
+  compact?: boolean
+}
+
+interface AIReportProps {
+  ticket: InvestigationTicket
+  copiedKey: string | null
+  onCopy: (key: string, value: string) => void
+}
+
+interface ConfidenceScoreProps {
+  value: number
+}
+
+interface CopyActionCardProps {
+  id: string
+  title: string
+  content: string
+  primaryAction: string
+  copiedKey: string | null
+  onCopy: (key: string, value: string) => void
+}
+
+interface ConversationPanelProps {
+  messages: ConversationEntry[]
+  draft: string
+  onDraftChange: (value: string) => void
+  onSend: () => void
+}
+
+interface TimelinePanelProps {
+  events: TimelineEvent[]
+}
+
+interface HistoryPanelProps {
+  events: HistoryEvent[]
+}
+
+const WORKSPACE_TABS: WorkspaceTab[] = [
+  { id: 'investigation', label: 'Investigation' },
+  { id: 'ai-report', label: 'AI Report' },
+  { id: 'conversation', label: 'Conversation' },
+  { id: 'timeline', label: 'Timeline' },
+  { id: 'attachments', label: 'Attachments' },
+  { id: 'history', label: 'History' },
+]
+
+const SIDEBAR_ITEMS: WorkspaceSidebarItem[] = [
+  { id: 'home', label: 'Home', icon: 'home' },
+  { id: 'team', label: 'Team', icon: 'team' },
+  { id: 'tickets', label: 'Tickets', icon: 'tickets' },
+  { id: 'investigation', label: 'Investigation', icon: 'investigation' },
+  { id: 'reports', label: 'Reports', icon: 'reports' },
+  { id: 'knowledge', label: 'Knowledge Base', icon: 'knowledge' },
+  { id: 'settings', label: 'Settings', icon: 'settings' },
+]
+
+const DEFAULT_TICKET_ID = '90857'
+
+const SIDEBAR_ICON_MAP: Record<SidebarIconKey, IconType> = {
+  home: LuLayoutGrid,
+  team: LuUsers,
+  tickets: LuTicket,
+  investigation: LuBrainCircuit,
+  reports: LuBarChart3,
+  knowledge: LuBookMarked,
+  settings: LuSettings,
+}
+
+const INVESTIGATION_ICON_MAP: Record<CardIconKey, IconType> = {
+  knowledge: LuSparkles,
+  code: LuCode2,
+  chatgpt: LuBot,
+  claude: LuShieldCheck,
+  report: LuClipboardList,
+}
+
+const MOBILE_PANELS: Array<{ id: MobilePanelId; label: string }> = [
+  { id: 'ticket', label: 'Ticket' },
+  { id: 'investigation', label: 'Investigation' },
+  { id: 'evidence', label: 'Evidence' },
+]
+
+function createSteps(stage: InvestigationStage): InvestigationStepData[] {
+  const states: Record<InvestigationStage, StepStatus[]> = {
+    analysis: ['completed', 'completed', 'completed', 'active', 'pending', 'waiting'],
+    verification: ['completed', 'completed', 'completed', 'completed', 'active', 'waiting'],
+    reporting: ['completed', 'completed', 'completed', 'completed', 'completed', 'active'],
+    completed: ['completed', 'completed', 'completed', 'completed', 'completed', 'completed'],
+  }
+
+  const labels = [
+    'Read Ticket\nfrom Redmine',
+    'Search Similar\nTickets',
+    'Code Analysis',
+    'AI Analysis\n(ChatGPT)',
+    'Claude Analysis\n(Optional)',
+    'Generate Final\nReport',
+  ]
+
+  const timestamps = ['10:15:21 AM', '10:15:28 AM', '10:16:05 AM', '10:16:42 AM', '10:17:15 AM', '10:17:45 AM']
+
+  return labels.map((label, index) => ({
+    id: `step-${index + 1}`,
+    label,
+    status: states[stage][index],
+    timestamp: states[stage][index] === 'pending' || states[stage][index] === 'waiting' ? undefined : timestamps[index],
+  }))
+}
+
+function createInvestigationCards(stage: InvestigationStage): InvestigationCardData[] {
+  const steps = createSteps(stage)
+
+  return [
+    {
+      id: 'similar',
+      title: 'Similar Tickets',
+      description: 'Found 5 similar tickets. Top match has 92% similarity.',
+      status: steps[1].status === 'active' ? 'active' : 'completed',
+      icon: 'knowledge',
+    },
+    {
+      id: 'code',
+      title: 'Code Analysis',
+      description: 'Analyzed 8 files, 3 services and 2 controllers. Potential issues found in AuthenticationService.',
+      status: steps[2].status === 'active' ? 'active' : 'completed',
+      icon: 'code',
+    },
+    {
+      id: 'chatgpt',
+      title: 'AI Analysis (ChatGPT)',
+      description: 'Analyzing ticket, similar tickets, code references and logs. Generating root cause and recommended fix.',
+      status: steps[3].status,
+      icon: 'chatgpt',
+    },
+    {
+      id: 'claude',
+      title: 'Claude Analysis (Optional)',
+      description: 'Cross-verifying analysis and generating alternate recommendations.',
+      status: steps[4].status,
+      icon: 'claude',
+    },
+    {
+      id: 'report',
+      title: 'Generate Final Report',
+      description: 'Compiling final report with root cause, steps and resolution.',
+      status: steps[5].status,
+      icon: 'report',
+    },
+  ]
+}
+
+function buildConversation(ticketNumber: string, focus: string): ConversationEntry[] {
+  return [
+    {
+      id: `${ticketNumber}-c1`,
+      sender: 'engineer',
+      name: 'Support Engineer',
+      message: `Analyze ticket ${ticketNumber} and focus on ${focus}.`,
+      timestamp: '10:16 AM',
+    },
+    {
+      id: `${ticketNumber}-c2`,
+      sender: 'ai',
+      name: 'Samixa AI Agent',
+      message: 'I found 5 similar tickets and the strongest pattern points to authentication and session handling.',
+      timestamp: '10:16 AM',
+    },
+    {
+      id: `${ticketNumber}-c3`,
+      sender: 'engineer',
+      name: 'Support Engineer',
+      message: 'Cross-check the authentication service and compare the mobile stack traces.',
+      timestamp: '10:17 AM',
+    },
+    {
+      id: `${ticketNumber}-c4`,
+      sender: 'ai',
+      name: 'Samixa AI Agent',
+      message: 'Code analysis flagged a likely regression in token validation. I am preparing the report and client response.',
+      timestamp: '10:18 AM',
+    },
+  ]
+}
+
+function buildTimeline(ticketTitle: string, stage: InvestigationStage): TimelineEvent[] {
+  const finalState = stage === 'completed' ? 'completed' : stage === 'reporting' ? 'active' : 'waiting'
+
+  return [
+    {
+      id: `${ticketTitle}-t1`,
+      time: '10:15:21',
+      title: 'Ticket loaded from Redmine',
+      detail: `Initial evidence and customer context collected for ${ticketTitle}.`,
+      status: 'completed',
+    },
+    {
+      id: `${ticketTitle}-t2`,
+      time: '10:15:28',
+      title: 'Similar ticket search completed',
+      detail: 'Top historical match returned 92% similarity and linked supporting notes.',
+      status: 'completed',
+    },
+    {
+      id: `${ticketTitle}-t3`,
+      time: '10:16:05',
+      title: 'Code analysis completed',
+      detail: 'Authentication and session-handling services were scanned for recent regressions.',
+      status: 'completed',
+    },
+    {
+      id: `${ticketTitle}-t4`,
+      time: '10:16:18',
+      title: 'ChatGPT analysis started',
+      detail: 'LLM synthesis is comparing comments, logs, similar tickets, and code references.',
+      status: stage === 'analysis' ? 'active' : 'completed',
+    },
+    {
+      id: `${ticketTitle}-t5`,
+      time: '10:16:32',
+      title: 'Claude analysis queued',
+      detail: 'Secondary model verification is preparing alternate recommendations.',
+      status: stage === 'verification' ? 'active' : stage === 'analysis' ? 'pending' : 'completed',
+    },
+    {
+      id: `${ticketTitle}-t6`,
+      time: '10:17:00',
+      title: 'Final report status',
+      detail: finalState === 'completed' ? 'Final report generated and ready for export.' : 'Final report generation is waiting on the latest synthesis pass.',
+      status: finalState,
+    },
+  ]
+}
+
+function buildHistory(ticketNumber: string): HistoryEvent[] {
+  return [
+    {
+      id: `${ticketNumber}-h1`,
+      time: '09/08/2026 10:15 AM',
+      actor: 'Redmine Agent',
+      title: 'Ticket synchronized',
+      detail: 'Fresh ticket context, attachments, and recent comments were imported into Samixa.',
+    },
+    {
+      id: `${ticketNumber}-h2`,
+      time: '09/08/2026 10:16 AM',
+      actor: 'Knowledge Agent',
+      title: 'Similar incidents linked',
+      detail: 'Knowledge base linked four comparable support cases and two internal runbooks.',
+    },
+    {
+      id: `${ticketNumber}-h3`,
+      time: '09/08/2026 10:17 AM',
+      actor: 'Code Agent',
+      title: 'Service scan completed',
+      detail: 'Authentication-related files were ranked by probable relevance and impact.',
+    },
+    {
+      id: `${ticketNumber}-h4`,
+      time: '09/08/2026 10:18 AM',
+      actor: 'Communication Agent',
+      title: 'Draft client reply prepared',
+      detail: 'A professional external response and an internal Redmine update were generated.',
+    },
+  ]
+}
+
+const INVESTIGATION_TICKETS: InvestigationTicket[] = [
+  {
+    id: '90857',
+    number: '#90857',
+    title: 'Users experiencing crashes when logging in through mobile app',
+    tracker: 'Bug',
+    priorityLabel: 'Critical',
+    priorityTone: 'critical',
+    project: 'BASF Digital - Berlin',
+    module: 'Mobile Application',
+    statusLabel: 'Investigation in Progress',
+    assignedTo: 'Test User',
+    createdAt: '09/08/2026 10:15 AM',
+    updatedAt: '09/08/2026 10:32 AM',
+    createdRelative: '25 days ago',
+    updatedRelative: '12 days ago',
+    description:
+      'Users are experiencing crashes when logging in through the mobile app immediately after entering credentials. Reproduced on iOS 16.5 and Android 13 using production accounts.',
+    comments: [
+      {
+        id: '90857-comment-1',
+        author: 'Engineer John',
+        badge: 'Internal',
+        content: 'Confirmed issue on iOS 16.5. Crash occurs after credential submit and before dashboard render.',
+        timestamp: '09/08/2026 10:20 AM',
+      },
+      {
+        id: '90857-comment-2',
+        author: 'QA Team',
+        badge: 'Internal',
+        content: 'Reproducible on Android as well. Session token expires before app state hydrates.',
+        timestamp: '09/08/2026 10:25 AM',
+      },
+    ],
+    attachments: [
+      { id: '90857-file-1', name: 'error_log.txt', size: '12 KB', kind: 'text' },
+      { id: '90857-file-2', name: 'screenshot_1.png', size: '245 KB', kind: 'image' },
+    ],
+    logs: [
+      { id: '90857-log-1', name: 'crash_report.log', size: '18 KB', kind: 'log' },
+      { id: '90857-log-2', name: 'device_info.txt', size: '8 KB', kind: 'device' },
+      { id: '90857-log-3', name: 'session_trace.txt', size: '6 KB', kind: 'text' },
+    ],
+    similarTickets: [
+      { id: '#0010', title: 'Login crash on iOS 15.6', similarity: 92 },
+      { id: '#0012', title: 'Android app crash after login', similarity: 88 },
+      { id: '#1936', title: 'Crash on credential submit', similarity: 85 },
+      { id: '#1987', title: 'Session timeout after login', similarity: 78 },
+    ],
+    keyInsights: [
+      'Most similar ticket: #0010 (92%)',
+      'Affects: iOS, Android',
+      'First reported: 25 days ago',
+      'Reproducible: Yes',
+      'Priority: High',
+    ],
+    relatedModules: ['Authentication', 'Mobile App', 'Session', 'Crash Handling'],
+    steps: createSteps('analysis'),
+    investigationCards: createInvestigationCards('analysis'),
+    report: {
+      issueSummary:
+        'Customer users crash during mobile login because the app receives a valid response but fails to persist a fresh session token before dashboard bootstrapping.',
+      possibleRootCause:
+        'A timezone offset regression in the authentication/session flow marks newly issued tokens as expired. The mobile shell then crashes while retrying a protected request during hydration.',
+      confidence: 78,
+      evidence: [
+        'Stack traces point to token validation before home screen render.',
+        'Three historical tickets show the same symptom after auth-service releases.',
+        'QA reproduced the issue on both iOS and Android with production credentials.',
+      ],
+      similarTickets: [
+        '#0010 - Login crash on iOS 15.6 - resolved by correcting token expiry parsing.',
+        '#0012 - Android app crash after login - fixed by updating session bootstrap order.',
+        '#1936 - Crash on credential submit - linked to auth response deserialization.',
+      ],
+      codeReferences: [
+        'AuthenticationService.ts:88 - login response normalization',
+        'SessionService.ts:142 - expiry offset calculation',
+        'MobileShell.tsx:61 - protected route hydration',
+      ],
+      recommendedInvestigation: [
+        'Replay the login flow with production-like timezone offsets and device clocks.',
+        'Validate session bootstrap order in the mobile shell after auth success.',
+        'Compare token parsing between the current release and the last known good build.',
+      ],
+      recommendedFix: [
+        'Normalize auth expiry timestamps to UTC before session validation.',
+        'Guard protected-route hydration until token persistence completes.',
+        'Add regression coverage for mobile login on iOS 16 and Android 13.',
+      ],
+      clientResponse:
+        'Hi Team,\n\nWe are actively investigating the reported login crash in the mobile application. Our current analysis indicates the issue is related to session handling immediately after authentication. We are validating the fix path now and will share a confirmed update shortly.\n\nRegards,\nSamixa Support',
+      redmineUpdate:
+        'AI investigation suggests a probable authentication/session regression. Similar incidents point to token expiry parsing during mobile login bootstrap. Engineering validation is in progress and a remediation plan is being prepared.',
+      closureComment:
+        'Resolved by correcting session token expiry normalization and delaying protected-route hydration until auth persistence completes. Regression tests added for iOS and Android login flows.',
+    },
+    conversation: buildConversation('#90857', 'the mobile login crash'),
+    timeline: buildTimeline('mobile login crash', 'analysis'),
+    history: buildHistory('#90857'),
+  },
+  {
+    id: '90867',
+    number: '#90867',
+    title: 'App login failure on Android 13 devices',
+    tracker: 'SR',
+    priorityLabel: 'High',
+    priorityTone: 'high',
+    project: 'BASF BCG - Ludwigshafen',
+    module: 'Authentication Gateway',
+    statusLabel: 'Claude Verification Running',
+    assignedTo: 'Test User',
+    createdAt: '09/08/2026 11:05 AM',
+    updatedAt: '09/08/2026 11:48 AM',
+    createdRelative: '12 days ago',
+    updatedRelative: '1 hour ago',
+    description:
+      'Android 13 users receive a login failure banner after entering valid credentials. The request returns 200, but the device remains unauthenticated until the app restarts.',
+    comments: [
+      {
+        id: '90867-comment-1',
+        author: 'Field Support',
+        badge: 'Internal',
+        content: 'Customer confirmed issue only on Android 13 and newer. Android 12 is unaffected.',
+        timestamp: '09/08/2026 11:12 AM',
+      },
+      {
+        id: '90867-comment-2',
+        author: 'Release Manager',
+        badge: 'Internal',
+        content: 'Behavior started after the last auth gateway rollout.',
+        timestamp: '09/08/2026 11:20 AM',
+      },
+    ],
+    attachments: [
+      { id: '90867-file-1', name: 'android_network_trace.txt', size: '16 KB', kind: 'text' },
+      { id: '90867-file-2', name: 'customer_screen.mp4', size: '3.2 MB', kind: 'image' },
+    ],
+    logs: [
+      { id: '90867-log-1', name: 'gateway_trace.log', size: '22 KB', kind: 'log' },
+      { id: '90867-log-2', name: 'device_info.txt', size: '7 KB', kind: 'device' },
+      { id: '90867-log-3', name: 'auth_retry.log', size: '9 KB', kind: 'log' },
+    ],
+    similarTickets: [
+      { id: '#1124', title: 'Android token refresh loop', similarity: 90 },
+      { id: '#1278', title: 'Gateway response accepted, session missing', similarity: 84 },
+      { id: '#1936', title: 'Crash on credential submit', similarity: 80 },
+      { id: '#2091', title: 'Android auth context reset', similarity: 75 },
+    ],
+    keyInsights: [
+      'Most similar ticket: #1124 (90%)',
+      'Affects: Android 13+ only',
+      'Started after last gateway rollout',
+      'Reproducible: Intermittent',
+      'Recommended next step: verify token refresh race',
+    ],
+    relatedModules: ['Android Client', 'Auth Gateway', 'Refresh Token', 'Session Cache'],
+    steps: createSteps('verification'),
+    investigationCards: createInvestigationCards('verification'),
+    report: {
+      issueSummary:
+        'Android 13 devices accept login responses but do not persist the authenticated session until the app relaunches.',
+      possibleRootCause:
+        'A race condition between token refresh hydration and Android-specific secure storage writes likely leaves the session cache empty on first login.',
+      confidence: 82,
+      evidence: [
+        'Issue began immediately after the auth gateway release.',
+        'Android 13 secure storage writes lag behind token refresh callbacks.',
+        'Older Android versions do not reproduce the issue.',
+      ],
+      similarTickets: [
+        '#1124 - Android token refresh loop - resolved by serializing secure storage writes.',
+        '#1278 - Session missing after gateway success - fixed by cache invalidation patch.',
+      ],
+      codeReferences: [
+        'GatewayAuthClient.kt:134 - refresh response handling',
+        'SecureSessionStore.kt:59 - persisted session write order',
+        'AndroidLoginViewModel.kt:91 - optimistic auth state update',
+      ],
+      recommendedInvestigation: [
+        'Capture storage-write timing on Android 13 with debug instrumentation.',
+        'Compare refresh callback ordering between Android 12 and Android 13.',
+        'Validate whether gateway retries mask the first successful login response.',
+      ],
+      recommendedFix: [
+        'Serialize secure storage and in-memory session updates on login success.',
+        'Delay success-state UI changes until session persistence completes.',
+        'Add Android 13 regression coverage for login and app restart flows.',
+      ],
+      clientResponse:
+        'Hi Team,\n\nWe have isolated the Android 13 login issue to a post-authentication session persistence problem. The API is accepting the credentials, but the device session is not being finalized reliably on first login. We are validating the remediation and will update you with timing shortly.\n\nRegards,\nSamixa Support',
+      redmineUpdate:
+        'Verification indicates an Android-specific session persistence race after auth gateway success. Claude cross-check is validating the proposed fix before implementation.',
+      closureComment:
+        'Resolved by serializing secure storage writes and delaying the login success transition until session persistence completes on Android 13 devices.',
+    },
+    conversation: buildConversation('#90867', 'the Android 13 login failure'),
+    timeline: buildTimeline('Android 13 login failure', 'verification'),
+    history: buildHistory('#90867'),
+  },
+]
