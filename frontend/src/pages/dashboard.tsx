@@ -85,7 +85,7 @@ export default function Dashboard() {
       setTickets(response.data.tickets || [])
     } catch (err: any) {
       console.error('Failed to fetch assigned tickets:', err)
-      setError(err.response?.data?.detail || 'Failed to load your assigned BASF tickets')
+      setError(err.response?.data?.detail || 'Failed to load your assigned tickets')
       setTickets([])
     } finally {
       setLoading(false)
@@ -122,7 +122,7 @@ export default function Dashboard() {
             </div>
             <div>
               <h1 className="text-lg font-bold text-white">Samixa Dashboard</h1>
-              <p className="text-sm text-slate-400">Only BASF projects assigned to the logged-in Redmine user</p>
+              <p className="text-sm text-slate-400">Showing the tickets assigned to the logged-in Redmine user</p>
             </div>
           </div>
 
@@ -159,9 +159,9 @@ export default function Dashboard() {
 
       <main className="mx-auto max-w-7xl px-6 py-8">
         <section className="mb-8">
-          <h2 className="text-3xl font-bold text-white">Assigned BASF Tickets</h2>
+          <h2 className="text-3xl font-bold text-white">Assigned Tickets</h2>
           <p className="mt-2 text-sm text-slate-400">
-            Dashboard data is scoped to the BASF projects you listed and filtered to tickets assigned to your Redmine account.
+            Dashboard data is filtered to the tickets currently assigned to your Redmine account.
           </p>
         </section>
 
@@ -176,7 +176,7 @@ export default function Dashboard() {
             <div>
               <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">Scope</h3>
               <p className="mt-2 text-sm text-slate-200">
-                Showing tickets from <span className="font-semibold text-white">{projectCount || 0}</span> BASF project
+                Showing tickets from <span className="font-semibold text-white">{projectCount || 0}</span> project
                 {projectCount === 1 ? '' : 's'} for <span className="font-semibold text-white">{user?.full_name || user?.username}</span>.
               </p>
             </div>
@@ -207,9 +207,9 @@ export default function Dashboard() {
             </div>
           ) : tickets.length === 0 ? (
             <div className="rounded-2xl border border-slate-800 bg-slate-900/60 px-6 py-12 text-center">
-              <h4 className="text-lg font-semibold text-white">No assigned BASF tickets found</h4>
+              <h4 className="text-lg font-semibold text-white">No assigned tickets found</h4>
               <p className="mt-2 text-sm text-slate-400">
-                We checked the allowed BASF projects and only your assigned Redmine tickets are eligible for this dashboard.
+                We checked Redmine and there are no active, non-internal tickets assigned to your account right now.
               </p>
             </div>
           ) : (

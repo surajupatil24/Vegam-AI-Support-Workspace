@@ -100,12 +100,18 @@ class RedmineClient:
             logger.error(f"Failed to get watchers: {e}")
             return []
 
-    async def get_user_issues(self, assigned_to_id: int, status: str = "open") -> List[Dict]:
+    async def get_user_issues(self, assigned_to_id: int, status: str = "open", limit: int = 100) -> List[Dict]:
         """Get issues assigned to a user"""
+        status_lookup = {
+            "open": "o",
+            "closed": "c",
+            "all": "*",
+        }
         params = {
             "assigned_to_id": assigned_to_id,
-            "status_id": "o" if status == "open" else "c",  # o=open, c=closed
-            "limit": 100
+            "status_id": status_lookup.get(status, status),
+            "limit": limit,
+            "sort": "id:desc",
         }
 
         url = f"{self.base_url}/issues.json"

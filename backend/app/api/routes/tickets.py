@@ -8,35 +8,14 @@ from app.db.models import Ticket, TicketComment, User
 from app.utils.redmine_client import RedmineClient
 from app.api.routes.auth import require_current_user
 import logging
+from sqlalchemy import delete
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-BASF_PROJECTS = [
-    "BASF AWETA - Guadalajara",
-    "BASF AWETA - Munster",
-    "BASF BCG",
-    "BASF - Greenville",
-    "BASF GUA Paint 1 (External)",
-    "BASF GUA Paint 2 (External)",
-    "BASF GUA Resins (External)",
-    "BASF Highrunner",
-    "BASF India",
-    "BASF LEANLAB - Clermont",
-    "BASF LEANLAB - Mangalore",
-    "BASF LEANLAB - Southfield",
-    "BASF LEANLAB - Tutitlan",
-    "BASF LEANLAB - Wurzburg",
-    "BASF Caojing",
-    "BASF Minhang",
-    "BASF SHAPE",
-    "BASF Totsuka - Japan",
-    "BASF Tultitlan",
-    "BASF Windsor",
-]
-
-OPEN_TICKET_STATUSES = ["Open", "In Progress", "Reopened"]
+INTERNAL_PROJECT_MARKER = "(internal)"
+INACTIVE_STATUS_NAMES = {"closed", "resolved"}
 
 
 class TicketResponse(BaseModel):
@@ -84,8 +63,27 @@ def _serialize_ticket(ticket: Ticket) -> Dict[str, object]:
     }
 
 
-def _is_allowed_project(project_name: str) -> bool:
-    return project_name in BASF_PROJECTS
+def _normalize_redmine_field_value(value: object) -> str:
+    if value is None:
+        return ""
+
+    if isinstance(value, list):
+        return ", ".join(str(item).strip() for item in value if str(item).strip())
+
+    return str(value).strip()
+
+
+def _extract_customer(issue: Dict) -> str:
+    custom_fields = issue.get("custom_fields") or []
+    for field in custom_fields:
+        field_name = (field.get("name") or "").strip().lower()
+        if field_name in {"customer", "company", "client"}:
+            return _normalize_redmine_field_value(field.get("value"))
+
+    if custom_fields:
+        return _normalize_redmine_field_value(custom_fields[0].get("value"))
+
+    return ""
 
 
 def _issue_is_assigned_to_user(issue: Dict, current_user: User) -> bool:
@@ -94,12 +92,27 @@ def _issue_is_assigned_to_user(issue: Dict, current_user: User) -> bool:
     return bool(current_user.redmine_id) and assigned_user_id == current_user.redmine_id
 
 
-def _user_can_access_project(project_name: str, issue: Dict, current_user: User) -> bool:
-    return _is_allowed_project(project_name) and _issue_is_assigned_to_user(issue, current_user)
+def _issue_is_internal_project(issue: Dict) -> bool:
+    project_name = (issue.get("project") or {}).get("name", "")
+    return INTERNAL_PROJECT_MARKER in project_name.lower()
+
+
+def _issue_has_active_status(issue: Dict) -> bool:
+    status_name = ((issue.get("status") or {}).get("name") or "").strip().lower()
+    return status_name not in INACTIVE_STATUS_NAMES
+
+
+def _user_can_access_issue(issue: Dict, current_user: User) -> bool:
+    return (
+        _issue_is_assigned_to_user(issue, current_user)
+        and not _issue_is_internal_project(issue)
+        and _issue_has_active_status(issue)
+    )
 
 
 def _upsert_ticket_from_issue(db: Session, issue: Dict, current_user: User) -> Ticket:
     project_name = issue.get("project", {}).get("name", "")
+    customer_name = _extract_customer(issue)
     existing = db.query(Ticket).filter(Ticket.redmine_id == issue.get("id")).first()
 
     if existing:
@@ -109,7 +122,7 @@ def _upsert_ticket_from_issue(db: Session, issue: Dict, current_user: User) -> T
         existing.priority = issue.get("priority", {}).get("name", "Normal")
         existing.status = issue.get("status", {}).get("name", "Open")
         existing.module = project_name
-        existing.customer = issue.get("custom_fields", [{}])[0].get("value", existing.customer or "")
+        existing.customer = customer_name or (existing.customer or "")
         existing.assigned_to = current_user.id
         existing.created_at = _parse_redmine_datetime(issue.get("created_on")) or existing.created_at
         existing.updated_at = _parse_redmine_datetime(issue.get("updated_on")) or existing.updated_at
@@ -123,7 +136,7 @@ def _upsert_ticket_from_issue(db: Session, issue: Dict, current_user: User) -> T
         priority=issue.get("priority", {}).get("name", "Normal"),
         status=issue.get("status", {}).get("name", "Open"),
         module=project_name,
-        customer=issue.get("custom_fields", [{}])[0].get("value", ""),
+        customer=customer_name,
         assigned_to=current_user.id,
         created_at=_parse_redmine_datetime(issue.get("created_on")),
         updated_at=_parse_redmine_datetime(issue.get("updated_on")),
@@ -132,41 +145,61 @@ def _upsert_ticket_from_issue(db: Session, issue: Dict, current_user: User) -> T
     return ticket
 
 
+async def _sync_current_user_tickets(db: Session, current_user: User) -> List[Ticket]:
+    if not current_user.redmine_id:
+        return []
+
+    redmine = RedmineClient()
+    issues = await redmine.get_user_issues(assigned_to_id=current_user.redmine_id, status="all", limit=200)
+
+    synced_redmine_ids: set[int] = set()
+    for issue in issues:
+        if not _user_can_access_issue(issue, current_user):
+            continue
+
+        redmine_id = issue.get("id")
+        if not redmine_id:
+            continue
+
+        synced_redmine_ids.add(redmine_id)
+        _upsert_ticket_from_issue(db, issue, current_user)
+
+    stale_ticket_query = db.query(Ticket).filter(Ticket.assigned_to == current_user.id)
+    if synced_redmine_ids:
+        stale_ticket_query = stale_ticket_query.filter(~Ticket.redmine_id.in_(synced_redmine_ids))
+
+    stale_ticket_ids = [ticket.id for ticket in stale_ticket_query.all()]
+    if stale_ticket_ids:
+        db.execute(delete(TicketComment).where(TicketComment.ticket_id.in_(stale_ticket_ids)))
+        db.query(Ticket).filter(Ticket.id.in_(stale_ticket_ids)).delete(synchronize_session=False)
+
+    db.commit()
+
+    return (
+        db.query(Ticket)
+        .filter(Ticket.assigned_to == current_user.id)
+        .order_by(Ticket.updated_at.desc())
+        .limit(50)
+        .all()
+    )
+
+
 @router.get("/assigned", response_model=TicketListResponse)
 async def get_assigned_tickets(
     current_user: User = Depends(require_current_user),
     db: Session = Depends(get_db)
 ):
     """
-    Get tickets assigned to the logged-in user from BASF projects only
+    Get only the Redmine tickets currently assigned to the logged-in user
     """
+    current_user_id = current_user.id
+    current_username = current_user.username
+
     try:
         if not current_user.redmine_id:
             return {"tickets": [], "total": 0}
 
-        tickets = db.query(Ticket).filter(
-            Ticket.assigned_to == current_user.id,
-            Ticket.status.in_(OPEN_TICKET_STATUSES),
-            Ticket.module.in_(BASF_PROJECTS)
-        ).order_by(Ticket.updated_at.desc()).limit(20).all()
-
-        if not tickets:
-            redmine = RedmineClient()
-            issues = await redmine.get_user_issues(assigned_to_id=current_user.redmine_id, status="open")
-
-            for issue in issues:
-                project_name = issue.get("project", {}).get("name", "")
-                if not _user_can_access_project(project_name, issue, current_user):
-                    continue
-                _upsert_ticket_from_issue(db, issue, current_user)
-
-            db.commit()
-
-            tickets = db.query(Ticket).filter(
-                Ticket.assigned_to == current_user.id,
-                Ticket.status.in_(OPEN_TICKET_STATUSES),
-                Ticket.module.in_(BASF_PROJECTS)
-            ).order_by(Ticket.updated_at.desc()).limit(20).all()
+        tickets = await _sync_current_user_tickets(db, current_user)
 
         return {
             "tickets": [_serialize_ticket(ticket) for ticket in tickets],
@@ -174,10 +207,18 @@ async def get_assigned_tickets(
         }
 
     except Exception as e:
-        logger.error(f"Failed to fetch tickets for user %s: %s", current_user.username, e)
+        db.rollback()
+        logger.exception("Failed to fetch tickets for user %s", current_username)
+        tickets = (
+            db.query(Ticket)
+            .filter(Ticket.assigned_to == current_user_id)
+            .order_by(Ticket.updated_at.desc())
+            .limit(50)
+            .all()
+        )
         return {
-            "tickets": [],
-            "total": 0,
+            "tickets": [_serialize_ticket(ticket) for ticket in tickets],
+            "total": len(tickets),
         }
 
 
@@ -187,12 +228,11 @@ async def get_ticket(
     current_user: User = Depends(require_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get a single BASF ticket assigned to the logged-in user"""
+    """Get a single ticket assigned to the logged-in user"""
     try:
         ticket = db.query(Ticket).filter(
             Ticket.redmine_id == ticket_id,
-            Ticket.assigned_to == current_user.id,
-            Ticket.module.in_(BASF_PROJECTS)
+            Ticket.assigned_to == current_user.id
         ).first()
 
         if ticket:
@@ -231,8 +271,7 @@ async def get_ticket(
         if not issue:
             raise HTTPException(status_code=404, detail="Ticket not found")
 
-        project_name = issue.get("project", {}).get("name", "")
-        if not _user_can_access_project(project_name, issue, current_user):
+        if not _user_can_access_issue(issue, current_user):
             raise HTTPException(status_code=404, detail="Ticket not found")
 
         comments_data = await redmine.get_issue_comments(ticket_id)
@@ -272,34 +311,21 @@ async def sync_tickets_from_redmine(
     db: Session = Depends(get_db)
 ):
     """
-    Sync BASF tickets assigned to the logged-in user from Redmine to local database
+    Sync the Redmine tickets assigned to the logged-in user into the local cache
     """
     try:
         if not current_user.redmine_id:
             return {
                 "message": "User is not linked to Redmine",
                 "synced": 0,
-                "projects_synced": len(BASF_PROJECTS)
+                "tickets_synced": 0
             }
 
-        redmine = RedmineClient()
-        issues = await redmine.get_user_issues(assigned_to_id=current_user.redmine_id, status="open")
-
-        synced_count = 0
-        for issue in issues:
-            project_name = issue.get("project", {}).get("name", "")
-
-            if not _user_can_access_project(project_name, issue, current_user):
-                continue
-
-            _upsert_ticket_from_issue(db, issue, current_user)
-            synced_count += 1
-
-        db.commit()
+        tickets = await _sync_current_user_tickets(db, current_user)
         return {
             "message": "Sync completed",
-            "synced": synced_count,
-            "projects_synced": len(BASF_PROJECTS)
+            "synced": len(tickets),
+            "tickets_synced": len(tickets)
         }
 
     except Exception as e:

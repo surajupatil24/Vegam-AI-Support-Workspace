@@ -33,7 +33,7 @@ class UserResponse(BaseModel):
     redmine_id: Optional[int] = None
 
     class Config:
-        from_attributes = True
+        orm_mode = True
 
 
 def _extract_bearer_token(authorization: Optional[str]) -> str:
@@ -91,10 +91,10 @@ async def require_current_user(
 @router.post("/login", response_model=LoginResponse)
 async def login(request: LoginRequest, db: Session = Depends(get_db)):
     """
-    Authenticate user - uses Redmine API key (configured in .env)
+    Authenticate user with their own Redmine username and password
     """
-    # Use API key from environment for authentication (simpler, more reliable)
-    redmine = RedmineClient()
+    normalized_username = request.username.strip()
+    redmine = RedmineClient(username=normalized_username, password=request.password)
 
     try:
         current_redmine_user = await redmine.get_current_user()
@@ -105,29 +105,34 @@ async def login(request: LoginRequest, db: Session = Depends(get_db)):
                 detail="Invalid Redmine credentials"
             )
 
-        # Check if user exists in database
-        user = db.query(User).filter(User.username == request.username).first()
+        redmine_login = current_redmine_user.get("login") or normalized_username
+        redmine_user_id = current_redmine_user.get("id")
+
+        # Prefer Redmine identity so users don't get duplicated if the typed casing changes.
+        user = db.query(User).filter(User.redmine_id == redmine_user_id).first()
+        if not user:
+            user = db.query(User).filter(User.username == redmine_login).first()
 
         if not user:
-            # Create new user from Redmine data
             user = User(
-                username=request.username,
-                email=current_redmine_user.get("mail", f"{request.username}@vegam.co"),
-                full_name=current_redmine_user.get("name", request.username),
-                redmine_id=current_redmine_user.get("id"),
+                username=redmine_login,
+                email=current_redmine_user.get("mail", f"{redmine_login}@vegam.co"),
+                full_name=current_redmine_user.get("name", redmine_login),
+                redmine_id=redmine_user_id,
                 is_active=True,
                 role="engineer"
             )
             db.add(user)
             db.commit()
             db.refresh(user)
-            logger.info(f"Created new user from Redmine: {request.username}")
+            logger.info("Created new user from Redmine: %s", redmine_login)
         else:
-            user.email = current_redmine_user.get("mail", user.email or f"{request.username}@vegam.co")
-            user.full_name = current_redmine_user.get("name", user.full_name or request.username)
-            user.redmine_id = current_redmine_user.get("id", user.redmine_id)
+            user.username = redmine_login
+            user.email = current_redmine_user.get("mail", user.email or f"{redmine_login}@vegam.co")
+            user.full_name = current_redmine_user.get("name", user.full_name or redmine_login)
+            user.redmine_id = redmine_user_id
             user.is_active = True
-            logger.info(f"Authenticated existing user: {request.username}")
+            logger.info("Authenticated existing user: %s", redmine_login)
 
         db.commit()
         db.refresh(user)
