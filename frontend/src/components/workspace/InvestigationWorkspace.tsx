@@ -15,7 +15,7 @@ import apiClient from '@/lib/api'
 import { formatStableDateTime } from '@/lib/datetime'
 import { useAuthStore } from '@/lib/store'
 
-type TicketTracker = 'Bug' | 'SR'
+type TicketTracker = string
 type TicketPriorityTone = 'critical' | 'high' | 'medium'
 type StepStatus = 'done' | 'running' | 'waiting'
 type SourceMode = 'saved' | 'live' | 'mixed'
@@ -116,6 +116,7 @@ interface TicketDetailResponse extends AssignedTicketResponse {
 
 interface InvestigationWorkspaceProps {
   initialTicketId?: string
+  demoMode?: boolean
 }
 
 const DEFAULT_TICKET_ID = '90857'
@@ -345,7 +346,11 @@ function getSavedTicket(ticketId: string): InvestigationTicket | undefined {
 }
 
 function normalizeTracker(value: string): TicketTracker {
-  return value === 'SR' ? 'SR' : 'Bug'
+  if (/service request/i.test(value)) {
+    return 'SR'
+  }
+
+  return value || 'Bug'
 }
 
 function getPriorityTone(priority: string): TicketPriorityTone {
@@ -368,7 +373,7 @@ function createGenericTicket(summary: AssignedTicketResponse, assignee: string):
     tracker: normalizeTracker(summary.tracker),
     priorityLabel: summary.priority || 'Normal',
     priorityTone: getPriorityTone(summary.priority || 'Normal'),
-    project: summary.module || 'BASF Project',
+    project: summary.module || 'Allowed Project',
     module: summary.module || 'Unspecified Module',
     statusLabel: summary.status || 'Open',
     assignedTo: assignee || 'Support Engineer',
@@ -384,7 +389,7 @@ function createGenericTicket(summary: AssignedTicketResponse, assignee: string):
       `Priority: ${summary.priority || 'Unknown'}`,
       'Live ticket data loaded without saved investigation history.',
     ],
-    relatedModules: [summary.module || 'BASF Module'],
+    relatedModules: [summary.module || 'Assigned Module'],
     steps: buildSteps('analysis'),
     investigationCards: buildCards('analysis'),
     report: {
@@ -393,7 +398,7 @@ function createGenericTicket(summary: AssignedTicketResponse, assignee: string):
         'Live ticket details are available, but this case does not yet have saved AI investigation notes in the workspace.',
       recommendedInvestigation: [
         'Review the latest Redmine comments and reproduction steps.',
-        'Check recent changes in the affected BASF module.',
+        'Check recent changes in the affected module.',
         'Attach any additional screenshots, logs, or traces needed for analysis.',
       ],
       recommendedFix: [
@@ -412,26 +417,7 @@ function createGenericTicket(summary: AssignedTicketResponse, assignee: string):
 }
 
 function mergeAssignedTicket(summary: AssignedTicketResponse, assignee: string): InvestigationTicket {
-  const saved = getSavedTicket(String(summary.redmine_id))
-
-  if (!saved) {
-    return createGenericTicket(summary, assignee)
-  }
-
-  return {
-    ...saved,
-    title: summary.subject || saved.title,
-    tracker: normalizeTracker(summary.tracker || saved.tracker),
-    priorityLabel: summary.priority || saved.priorityLabel,
-    priorityTone: getPriorityTone(summary.priority || saved.priorityLabel),
-    project: summary.module || saved.project,
-    module: summary.module || saved.module,
-    statusLabel: summary.status || saved.statusLabel,
-    assignedTo: assignee || saved.assignedTo,
-    description: summary.description || saved.description,
-    createdAt: summary.created_at || saved.createdAt,
-    updatedAt: summary.updated_at || saved.updatedAt,
-  }
+  return createGenericTicket(summary, assignee)
 }
 
 function mergeTicketDetail(ticket: InvestigationTicket, detail: TicketDetailResponse): InvestigationTicket {
@@ -512,10 +498,10 @@ function sourceMessage(mode: SourceMode): string {
   }
 
   if (mode === 'mixed') {
-    return 'Live ticket data loaded with saved workspace analysis for the investigation view.'
+    return 'Live Redmine ticket data loaded successfully.'
   }
 
-  return 'Showing the saved workspace because live ticket data is unavailable right now.'
+  return 'Demo workspace loaded.'
 }
 
 function CopyBlock(props: {
@@ -544,6 +530,7 @@ function CopyBlock(props: {
 
 export default function InvestigationWorkspace({
   initialTicketId = DEFAULT_TICKET_ID,
+  demoMode = false,
 }: InvestigationWorkspaceProps) {
   const router = useRouter()
   const user = useAuthStore((state) => state.user)
@@ -553,9 +540,9 @@ export default function InvestigationWorkspace({
   const routeTicketId = Array.isArray(router.query.ticketId) ? router.query.ticketId[0] : router.query.ticketId
   const activeTicketId = routeTicketId || initialTicketId
 
-  const [tickets, setTickets] = useState<InvestigationTicket[]>(SAVED_TICKETS)
+  const [tickets, setTickets] = useState<InvestigationTicket[]>(demoMode ? SAVED_TICKETS : [])
   const [selectedTicketId, setSelectedTicketId] = useState<string>(activeTicketId)
-  const [sourceMode, setSourceMode] = useState<SourceMode>('saved')
+  const [sourceMode, setSourceMode] = useState<SourceMode>(demoMode ? 'saved' : 'live')
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
@@ -572,15 +559,27 @@ export default function InvestigationWorkspace({
       setLoading(true)
       setLoadError('')
 
-      const fallbackTicket = getSavedTicket(activeTicketId) || SAVED_TICKETS[0]
       const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null
+
+      if (demoMode) {
+        if (!isCancelled) {
+          const demoTicket = getSavedTicket(activeTicketId) || SAVED_TICKETS[0]
+          setTickets(SAVED_TICKETS)
+          setSelectedTicketId(demoTicket.id)
+          setSourceMode('saved')
+          setLoading(false)
+        }
+        return
+      }
 
       if (!token) {
         if (!isCancelled) {
-          setTickets(SAVED_TICKETS)
-          setSelectedTicketId(fallbackTicket.id)
-          setSourceMode('saved')
+          setTickets([])
+          setSelectedTicketId('')
+          setSourceMode('live')
+          setLoadError('Please log in with your Redmine account to view assigned tickets.')
           setLoading(false)
+          void router.replace('/login')
         }
         return
       }
@@ -616,8 +615,8 @@ export default function InvestigationWorkspace({
               )
             : []
 
-        let mergedTickets = assignedTickets.length > 0 ? assignedTickets : SAVED_TICKETS
-        let nextMode: SourceMode = assignedTickets.length > 0 ? 'mixed' : 'saved'
+        let mergedTickets = assignedTickets
+        let nextMode: SourceMode = 'live'
 
         if (detailResult.status === 'fulfilled') {
           const detail = detailResult.value.data as TicketDetailResponse
@@ -628,29 +627,34 @@ export default function InvestigationWorkspace({
           mergedTickets = mergedTickets.some((ticket) => ticket.id === detailedTicket.id)
             ? mergedTickets.map((ticket) => (ticket.id === detailedTicket.id ? detailedTicket : ticket))
             : [detailedTicket, ...mergedTickets]
-
-          nextMode = assignedTickets.length > 0 ? 'mixed' : 'live'
         }
 
-        setTickets(mergedTickets)
-        setSelectedTicketId(
+        const resolvedTicketId =
           mergedTickets.find((ticket) => ticket.id === activeTicketId)?.id ||
-            mergedTickets[0]?.id ||
-            fallbackTicket.id
-        )
+          mergedTickets[0]?.id ||
+          ''
+
+        setTickets(mergedTickets)
+        setSelectedTicketId(resolvedTicketId)
         setSourceMode(nextMode)
 
-        if (assignedResult.status === 'rejected' && detailResult.status === 'rejected') {
-          setLoadError('Live data could not be loaded, so the saved workspace is being shown.')
+        if (resolvedTicketId && resolvedTicketId !== activeTicketId) {
+          void router.replace(`/investigation/${resolvedTicketId}`)
+        }
+
+        if (mergedTickets.length === 0) {
+          setLoadError('No assigned Redmine tickets matched the allowed projects, statuses, and tracker types for this user.')
+        } else if (assignedResult.status === 'rejected' && detailResult.status === 'rejected') {
+          setLoadError('Live Redmine data could not be loaded. Please refresh or log in again.')
         } else if (assignedResult.status === 'rejected' || detailResult.status === 'rejected') {
-          setLoadError('Part of the live data failed to load, so saved workspace details are filling the gaps.')
+          setLoadError('Part of the live Redmine data could not be loaded. Some ticket details may be incomplete.')
         }
       } catch {
         if (!isCancelled) {
-          setTickets(SAVED_TICKETS)
-          setSelectedTicketId(fallbackTicket.id)
-          setSourceMode('saved')
-          setLoadError('Live data could not be loaded, so the saved workspace is being shown.')
+          setTickets([])
+          setSelectedTicketId('')
+          setSourceMode('live')
+          setLoadError('Live Redmine data could not be loaded. Please refresh or log in again.')
         }
       } finally {
         if (!isCancelled) {
@@ -664,15 +668,11 @@ export default function InvestigationWorkspace({
     return () => {
       isCancelled = true
     }
-  }, [activeTicketId, reloadCount, setUser, user?.full_name])
+  }, [activeTicketId, demoMode, reloadCount, router, setUser, user?.full_name])
 
   const selectedTicket = useMemo(() => {
-    return tickets.find((ticket) => ticket.id === selectedTicketId) || getSavedTicket(selectedTicketId) || tickets[0]
+    return tickets.find((ticket) => ticket.id === selectedTicketId) || tickets[0]
   }, [selectedTicketId, tickets])
-
-  if (!selectedTicket) {
-    return null
-  }
 
   const handleTicketSelect = async (ticketId: string) => {
     setSelectedTicketId(ticketId)
@@ -700,6 +700,68 @@ export default function InvestigationWorkspace({
     }, 1500)
   }
 
+  const displayAssignee = user?.full_name || user?.username || 'Support Engineer'
+
+  if (!selectedTicket) {
+    return (
+      <>
+        <Head>
+          <title>Investigation Workspace</title>
+        </Head>
+
+        <div className="min-h-screen bg-slate-950 text-white">
+          <header className="border-b border-slate-800 bg-slate-950/95 backdrop-blur">
+            <div className="mx-auto flex max-w-[1680px] flex-wrap items-center justify-between gap-4 px-6 py-5">
+              <div className="flex items-center gap-4">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-600">
+                  <LuSparkles className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.35em] text-blue-200">Vegam Support AI</p>
+                  <h1 className="text-3xl font-semibold text-white">Investigation Workspace</h1>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3 text-right">
+                  <p className="text-sm font-medium text-white">{displayAssignee}</p>
+                  <p className="text-xs text-slate-400">{demoMode ? 'Demo workspace' : 'Live workspace'}</p>
+                </div>
+
+                <button
+                  onClick={handleRefresh}
+                  className="inline-flex items-center gap-2 rounded-2xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm font-medium text-slate-100 transition hover:border-slate-600 hover:bg-slate-800"
+                >
+                  <LuRefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                  Refresh
+                </button>
+
+                <button
+                  onClick={handleLogout}
+                  className="inline-flex items-center gap-2 rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm font-medium text-red-100 transition hover:bg-red-500/20"
+                >
+                  <LuLogOut className="h-4 w-4" />
+                  Logout
+                </button>
+              </div>
+            </div>
+          </header>
+
+          <main className="mx-auto max-w-[1680px] px-6 py-6">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/80 px-6 py-10 text-center">
+              <h2 className="text-2xl font-semibold text-white">
+                {loading ? 'Loading your Redmine tickets...' : 'No matching Redmine tickets found'}
+              </h2>
+              <p className="mt-3 text-sm text-slate-400">
+                {loadError || 'There are no assigned tickets matching the current project, status, and tracker filters.'}
+              </p>
+            </div>
+          </main>
+        </div>
+      </>
+    )
+  }
+
   return (
     <>
       <Head>
@@ -724,12 +786,12 @@ export default function InvestigationWorkspace({
                 <LuSearch className="h-4 w-4" />
                 <span>Search</span>
                 <span className="text-slate-500">|</span>
-                <span>{user?.full_name || selectedTicket.assignedTo}</span>
+                <span>{displayAssignee}</span>
               </div>
 
               <div className="rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3 text-right">
-                <p className="text-sm font-medium text-white">{user?.full_name || selectedTicket.assignedTo}</p>
-                <p className="text-xs text-slate-400">{sourceMode === 'saved' ? 'Saved workspace' : 'Live workspace'}</p>
+                <p className="text-sm font-medium text-white">{displayAssignee}</p>
+                <p className="text-xs text-slate-400">{sourceMode === 'saved' ? 'Demo workspace' : 'Live workspace'}</p>
               </div>
 
               <button

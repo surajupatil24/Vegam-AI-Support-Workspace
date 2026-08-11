@@ -13,5 +13,5 @@ const InvestigationWorkspace = dynamic(
 )
 
 export default function WorkspacePage() {
-  return <InvestigationWorkspace initialTicketId="90857" />
+  return <InvestigationWorkspace initialTicketId="90857" demoMode />
 }

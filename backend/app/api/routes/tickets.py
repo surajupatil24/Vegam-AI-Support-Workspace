@@ -15,7 +15,30 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 INTERNAL_PROJECT_MARKER = "(internal)"
-INACTIVE_STATUS_NAMES = {"closed", "resolved"}
+ALLOWED_PROJECT_PREFIXES = (
+    "surventis aweta - guadalajara",
+    "surventis aweta - munster",
+    "surventis bcg",
+    "surventis - greenville",
+    "surventis gua paint 1 (external)",
+    "surventis gua paint 2 (external)",
+    "surventis gua resins (external)",
+    "surventis highrunner",
+    "surventis india",
+    "surventis leanlab - clermont",
+    "surventis leanlab - mangalore",
+    "surventis leanlab - southfield",
+    "surventis leanlab - tutitlan",
+    "surventis leanlab - tultitlan",
+    "surventis leanlab - wurzburg",
+    "surventis symphony",
+    "surventis totsuka - japan",
+    "surventis tultitlan",
+    "surventis - windsor",
+)
+EXCLUDED_TRACKER_NAMES = {"requirement", "change request"}
+EXCLUDED_STATUS_NAMES = {"closed", "rejected", "withdrawn", "cancelled", "completed"}
+EXCLUDED_STATUS_KEYWORDS = ("completed", "released")
 
 
 class TicketResponse(BaseModel):
@@ -73,6 +96,10 @@ def _normalize_redmine_field_value(value: object) -> str:
     return str(value).strip()
 
 
+def _normalize_name(value: str) -> str:
+    return " ".join(value.casefold().split())
+
+
 def _extract_customer(issue: Dict) -> str:
     custom_fields = issue.get("custom_fields") or []
     for field in custom_fields:
@@ -97,16 +124,43 @@ def _issue_is_internal_project(issue: Dict) -> bool:
     return INTERNAL_PROJECT_MARKER in project_name.lower()
 
 
-def _issue_has_active_status(issue: Dict) -> bool:
-    status_name = ((issue.get("status") or {}).get("name") or "").strip().lower()
-    return status_name not in INACTIVE_STATUS_NAMES
+def _issue_is_allowed_project(issue: Dict) -> bool:
+    project_name = (issue.get("project") or {}).get("name", "")
+    normalized_project_name = _normalize_name(project_name)
+    if not normalized_project_name:
+        return False
+
+    return any(
+        normalized_project_name == allowed_project
+        or normalized_project_name.startswith(f"{allowed_project} -")
+        or normalized_project_name.startswith(f"{allowed_project} (")
+        for allowed_project in ALLOWED_PROJECT_PREFIXES
+    )
+
+
+def _issue_has_allowed_status(issue: Dict) -> bool:
+    status_name = _normalize_name((issue.get("status") or {}).get("name", ""))
+    if not status_name:
+        return False
+
+    if status_name in EXCLUDED_STATUS_NAMES:
+        return False
+
+    return not any(keyword in status_name for keyword in EXCLUDED_STATUS_KEYWORDS)
+
+
+def _issue_has_allowed_tracker(issue: Dict) -> bool:
+    tracker_name = _normalize_name((issue.get("tracker") or {}).get("name", ""))
+    return bool(tracker_name) and tracker_name not in EXCLUDED_TRACKER_NAMES
 
 
 def _user_can_access_issue(issue: Dict, current_user: User) -> bool:
     return (
         _issue_is_assigned_to_user(issue, current_user)
         and not _issue_is_internal_project(issue)
-        and _issue_has_active_status(issue)
+        and _issue_is_allowed_project(issue)
+        and _issue_has_allowed_status(issue)
+        and _issue_has_allowed_tracker(issue)
     )
 
 
@@ -150,7 +204,7 @@ async def _sync_current_user_tickets(db: Session, current_user: User) -> List[Ti
         return []
 
     redmine = RedmineClient()
-    issues = await redmine.get_user_issues(assigned_to_id=current_user.redmine_id, status="all", limit=200)
+    issues = await redmine.get_user_issues(assigned_to_id=current_user.redmine_id, status="all", limit=500)
 
     synced_redmine_ids: set[int] = set()
     for issue in issues:
