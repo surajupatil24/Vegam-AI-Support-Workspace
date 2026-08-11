@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
 import apiClient from '@/lib/api'
 import { useAuthStore } from '@/lib/store'
@@ -11,6 +11,17 @@ export default function Login() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!router.isReady) {
+      return
+    }
+
+    const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null
+    if (token) {
+      void router.replace('/investigation/90857')
+    }
+  }, [router])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
