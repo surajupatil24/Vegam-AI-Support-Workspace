@@ -1,14 +1,26 @@
 """
 Multi-Agent Orchestrator
 
-Uses LangGraph or CrewAI to orchestrate the 5 AI agents:
-1. Redmine Agent
-2. Knowledge Agent
-3. Code Agent
-4. AI Analysis Agent
-5. Communication Agent
+Investigation controller for the Samixa workflow.
 
-Manages workflow and data flow between agents.
+Target workflow:
+1. Ticket Understanding Agent
+2. Historical Incident / Knowledge Agent
+3. Domain Knowledge Agent
+4. Code Intelligence Agent (conditional)
+5. Database Investigation Agent (conditional, read-only)
+6. Configuration Investigation Agent (conditional)
+7. AI Investigation Synthesis Agent
+8. Communication / Solution Planner
+9. Learning Agent
+10. Expert Routing Agent (background or on-demand)
+
+The orchestrator itself should remain hidden from the support engineer and is responsible for:
+- deciding which agents must run
+- deciding which technical agents can be skipped
+- marking downstream agent outputs stale when upstream evidence changes
+- enforcing the engineer confirmation gate before customer communication
+- versioning structured evidence passed between agents
 """
 
 from typing import Dict, Any
@@ -19,21 +31,27 @@ from app.db.models import Investigation
 class AgentOrchestrator:
     def __init__(self, db: Session):
         self.db = db
-        # TODO: Initialize LangGraph or CrewAI with all 5 agents
-        # TODO: Define agent workflow and connections
+        # TODO: Initialize the workflow controller with the full 10-agent graph
+        # TODO: Define conditional branches, review gates, and evidence handoffs
 
     async def run_investigation(self, ticket_id: int, investigation_id: int) -> Dict[str, Any]:
         """
         Orchestrate all agents for a ticket investigation
 
         Flow:
-        1. Redmine Agent: Extract ticket information
-        2. Knowledge Agent: Search similar tickets
-        3. Code Agent: Analyze code (if applicable)
-        4. AI Analysis Agent: Generate insights
-        5. Communication Agent: Generate responses
+        1. Ticket Understanding Agent
+        2. Historical Incident / Knowledge Agent
+        3. Domain Knowledge Agent
+        4. Conditional technical agents (code / database / configuration)
+        5. AI Investigation Synthesis Agent
+        6. Wait for support engineer confirmation
+        7. Communication / Solution Planner
+        8. After resolution, Learning Agent
+        9. Expert Routing Agent can run in background or on-demand
         """
-        # TODO: Implement LangGraph/CrewAI workflow
+        # TODO: Implement workflow controller/state machine
+        # TODO: Maintain structured evidence passed between agents
+        # TODO: Support rerun + stale dependency invalidation
         pass
 
     async def run_agent_step(self, agent_name: str, data: Dict) -> Dict[str, Any]:

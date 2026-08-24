@@ -101,7 +101,7 @@ export default function Dashboard() {
   const highPriorityCount = tickets.filter((ticket) => /high|urgent|critical/i.test(ticket.priority)).length
   const projectCount = new Set(tickets.map((ticket) => ticket.module)).size
 
-  if (authLoading) {
+  if (authLoading || !user) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center">
         <div className="text-center">
@@ -128,7 +128,7 @@ export default function Dashboard() {
 
           <div className="flex flex-wrap items-center gap-3">
             <div className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-right">
-              <p className="text-sm font-medium text-white">{user?.full_name || 'Support Engineer'}</p>
+              <p className="text-sm font-medium text-white">{user.full_name || user.username}</p>
               <p className="text-xs text-slate-400">@{user?.username}</p>
             </div>
 
@@ -181,10 +181,10 @@ export default function Dashboard() {
               </p>
             </div>
             <button
-              onClick={() => router.push('/workspace')}
+              onClick={() => router.push('/investigation')}
               className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-medium text-slate-100 transition hover:border-slate-600 hover:bg-slate-700"
             >
-              Open Workspace Mock
+              Open Investigation Workspace
             </button>
           </div>
         </section>

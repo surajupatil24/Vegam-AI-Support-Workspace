@@ -5,8 +5,11 @@ from app.api.routes import (
     investigations,
     redmine_agent,
     knowledge_agent,
+    knowledge_base,
+    feedback,
     code_agent,
     ai_analysis_agent,
+    ai_conversation,
     claude_analysis_agent,
     communication_agent,
     report_generator,
@@ -28,8 +31,11 @@ router.include_router(investigations.router, prefix="/investigations", tags=["in
 # Agent endpoints
 router.include_router(redmine_agent.router, prefix="/agents/redmine", tags=["agents"])
 router.include_router(knowledge_agent.router, prefix="/agents/knowledge", tags=["agents"])
+router.include_router(knowledge_base.router, prefix="/knowledge-base", tags=["knowledge-base"])
+router.include_router(feedback.router, prefix="/feedback", tags=["feedback"])
 router.include_router(code_agent.router, prefix="/agents/code", tags=["agents"])
 router.include_router(ai_analysis_agent.router, prefix="/agents/ai-analysis", tags=["agents"])
+router.include_router(ai_conversation.router, prefix="/agents/conversation", tags=["agents"])
 router.include_router(claude_analysis_agent.router, prefix="/agents/claude-analysis", tags=["agents"])
 router.include_router(communication_agent.router, prefix="/agents/communication", tags=["agents"])
 router.include_router(report_generator.router, prefix="/agents/report", tags=["agents"])

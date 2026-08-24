@@ -43,8 +43,10 @@ services:
       DATABASE_URL: postgresql://samixa:password@postgres:5432/samixa
       REDIS_URL: redis://redis:6379
       PYTHONUNBUFFERED: 1
+      LOCAL_REPOSITORY_HOST_PATH: D:\Vegam Code from GitHub\28_01_2026\VegamSolutions\vegam4icomplete
+      LOCAL_REPOSITORY_CONTAINER_PATH: /external/vegam4icomplete
       REDMINE_BASE_URL: https://support.vegam.co
-      REDMINE_API_KEY: a2750e661d180e5fdf9b7e64c7acbdf85a34e987
+      REDMINE_API_KEY: ${REDMINE_API_KEY:-your_redmine_api_key}
       SECRET_KEY: your-secret-key-change-in-production
       ALGORITHM: HS256
       ACCESS_TOKEN_EXPIRE_MINUTES: 30
@@ -52,6 +54,7 @@ services:
       - "8000:8000"
     volumes:
       - ./backend:/app
+      - "D:/Vegam Code from GitHub/28_01_2026/VegamSolutions/vegam4icomplete:/external/vegam4icomplete:ro"
     depends_on:
       - postgres
     networks:
