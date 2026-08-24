@@ -1,12 +1,18 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Header
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError
 from app.db.database import get_db
 from app.db.models import User
 from app.utils.redmine_client import RedmineClient
 from app.utils.auth import AuthService
 from typing import Optional
 import logging
+
+try:
+    from pydantic import ConfigDict
+except ImportError:  # Pydantic v1 fallback
+    ConfigDict = None
 
 logger = logging.getLogger(__name__)
 
@@ -32,8 +38,11 @@ class UserResponse(BaseModel):
     role: str
     redmine_id: Optional[int] = None
 
-    class Config:
-        orm_mode = True
+    if ConfigDict is not None:
+        model_config = ConfigDict(from_attributes=True)
+    else:
+        class Config:
+            orm_mode = True
 
 
 def _extract_bearer_token(authorization: Optional[str]) -> str:
@@ -99,17 +108,28 @@ async def login(request: LoginRequest, db: Session = Depends(get_db)):
     try:
         current_redmine_user = await redmine.get_current_user()
 
-        if not current_redmine_user or not current_redmine_user.get("id"):
+        if not current_redmine_user or not (
+            current_redmine_user.get("id")
+            or current_redmine_user.get("login")
+            or current_redmine_user.get("mail")
+        ):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid Redmine credentials"
             )
 
-        redmine_login = current_redmine_user.get("login") or normalized_username
+        redmine_login = (
+            current_redmine_user.get("login")
+            or current_redmine_user.get("mail")
+            or normalized_username
+        )
         redmine_user_id = current_redmine_user.get("id")
 
         # Prefer Redmine identity so users don't get duplicated if the typed casing changes.
-        user = db.query(User).filter(User.redmine_id == redmine_user_id).first()
+        user = None
+        if redmine_user_id:
+            user = db.query(User).filter(User.redmine_id == redmine_user_id).first()
+
         if not user:
             user = db.query(User).filter(User.username == redmine_login).first()
 
@@ -155,12 +175,18 @@ async def login(request: LoginRequest, db: Session = Depends(get_db)):
 
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"Login failed: {e}")
+    except SQLAlchemyError as exc:
+        logger.exception("Login failed while accessing application database")
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication failed - invalid Redmine credentials"
-        )
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service database is temporarily unavailable"
+        ) from exc
+    except Exception as e:
+        logger.exception("Login failed due to unexpected application error")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Authentication service failed unexpectedly"
+        ) from e
 
 
 @router.post("/test-redmine")

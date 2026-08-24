@@ -1,10 +1,11 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
-from app.config import settings
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
 from app.api import router as api_router
-from app.db.database import engine, Base
+from app.config import settings
+from app.db.database import Base, engine
 
 # Create database tables (gracefully handle connection errors)
 try:
@@ -16,11 +17,10 @@ except Exception as e:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
-    print("🚀 Samixa AI Support Assistant starting...")
+    # Use ASCII-only startup logs so Windows console encoding does not crash boot.
+    print("Samixa AI Support Assistant starting...")
     yield
-    # Shutdown
-    print("🛑 Samixa shutting down...")
+    print("Samixa shutting down...")
 
 
 app = FastAPI(
@@ -47,7 +47,7 @@ def read_root():
     return {
         "name": settings.APP_NAME,
         "version": settings.APP_VERSION,
-        "status": "running"
+        "status": "running",
     }
 
 
@@ -58,4 +58,5 @@ def health_check():
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)

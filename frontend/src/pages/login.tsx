@@ -55,14 +55,14 @@ export default function Login() {
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">
-                Username
+                Redmine Login / Email
               </label>
               <input
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-blue-500"
-                placeholder="Enter your username"
+                placeholder="Enter your Redmine login or email"
                 required
               />
             </div>
@@ -97,7 +97,7 @@ export default function Login() {
           </form>
 
           <p className="text-gray-400 text-sm mt-4 text-center">
-            Using your Redmine credentials
+            Use the same credentials you use on support.vegam.co
           </p>
         </div>
       </div>

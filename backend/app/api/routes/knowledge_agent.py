@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_, func
 from app.db.database import get_db
-from app.db.models import Ticket, Investigation, KnowledgeBase
+from app.db.models import Ticket, Investigation, KnowledgeBase, KnowledgeAsset
 import logging
 
 logger = logging.getLogger(__name__)
@@ -26,6 +26,7 @@ class SimilarTicketResult(BaseModel):
 class KnowledgeAgentResponse(BaseModel):
     ticket_id: int
     similar_tickets: list[SimilarTicketResult]
+    knowledge_assets: list[dict]
     total_found: int
     status: str
 
@@ -53,6 +54,23 @@ def calculate_similarity(keywords1: list[str], keywords2: list[str]) -> float:
     return intersection / union if union > 0 else 0.0
 
 
+def _normalize_text(value: str | None) -> str:
+    return " ".join((value or "").split()).strip()
+
+
+def _asset_matches_module(asset: KnowledgeAsset, ticket_module: str) -> bool:
+    if not ticket_module:
+        return False
+
+    module_key = _normalize_text(ticket_module).casefold()
+    return any(
+        _normalize_text(str(module_name)).casefold() == module_key
+        or module_key in _normalize_text(str(module_name)).casefold()
+        or _normalize_text(str(module_name)).casefold() in module_key
+        for module_name in (asset.module_names or [])
+    )
+
+
 @router.post("/search")
 async def search_knowledge_base(
     request: KnowledgeAgentRequest,
@@ -76,6 +94,7 @@ async def search_knowledge_base(
             return KnowledgeAgentResponse(
                 ticket_id=request.ticket_id,
                 similar_tickets=[],
+                knowledge_assets=[],
                 total_found=0,
                 status="ticket_not_found"
             )
@@ -141,11 +160,48 @@ async def search_knowledge_base(
             if key not in unique_results or result["confidence"] > unique_results[key]["confidence"]:
                 unique_results[key] = result
 
+        knowledge_asset_results: list[dict] = []
+        ticket_module = ticket.module or ""
+        asset_entries = db.query(KnowledgeAsset).order_by(KnowledgeAsset.created_at.desc()).all()
+
+        for asset in asset_entries:
+            asset_keywords = extract_keywords(
+                " ".join([
+                    asset.title or "",
+                    asset.description or "",
+                    asset.notes or "",
+                    " ".join(str(item) for item in (asset.module_names or [])),
+                    " ".join(str(item) for item in (asset.plant_names or [])),
+                ])
+            )
+            similarity = calculate_similarity(ticket_keywords, asset_keywords)
+
+            if _asset_matches_module(asset, ticket_module):
+                similarity = max(similarity, 0.55)
+
+            if similarity > 0.2:
+                knowledge_asset_results.append({
+                    "asset_id": asset.id,
+                    "title": asset.title,
+                    "knowledge_type": asset.knowledge_type,
+                    "plant_names": list(asset.plant_names or []),
+                    "module_names": list(asset.module_names or []),
+                    "notes_preview": (asset.notes or asset.description or "")[:180],
+                    "confidence": round(similarity, 2),
+                    "download_url": f"/api/knowledge-base/assets/{asset.id}/download" if asset.storage_path else None,
+                })
+
         sorted_results = sorted(
             unique_results.values(),
             key=lambda x: x["confidence"],
             reverse=True
         )[:5]  # Return top 5 most similar
+
+        sorted_asset_results = sorted(
+            knowledge_asset_results,
+            key=lambda asset: asset["confidence"],
+            reverse=True
+        )[:5]
 
         # Format results
         formatted_results = [
@@ -162,7 +218,8 @@ async def search_knowledge_base(
         return KnowledgeAgentResponse(
             ticket_id=request.ticket_id,
             similar_tickets=formatted_results,
-            total_found=len(formatted_results),
+            knowledge_assets=sorted_asset_results,
+            total_found=len(formatted_results) + len(sorted_asset_results),
             status="completed"
         )
 
@@ -171,6 +228,7 @@ async def search_knowledge_base(
         return KnowledgeAgentResponse(
             ticket_id=request.ticket_id,
             similar_tickets=[],
+            knowledge_assets=[],
             total_found=0,
             status="error"
         )

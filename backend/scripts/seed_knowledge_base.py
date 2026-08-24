@@ -21,19 +21,15 @@ session = Session()
 def seed_data():
     """Seed sample investigation data"""
 
-    # Create a test user if it doesn't exist
-    user = session.query(User).filter(User.username == "testuser").first()
+    # Use an existing Redmine-linked user only. Do not create local test users.
+    user = (
+        session.query(User)
+        .filter(User.is_active.is_(True), User.redmine_id.isnot(None))
+        .order_by(User.id.asc())
+        .first()
+    )
     if not user:
-        user = User(
-            username="testuser",
-            email="test@vegam.co",
-            full_name="Test Engineer",
-            redmine_id=1,
-            is_active=True,
-            role="engineer"
-        )
-        session.add(user)
-        session.commit()
+        raise RuntimeError("No active Redmine-linked user exists for knowledge base seeding.")
 
     # Sample tickets with investigations
     sample_investigations = [
@@ -113,7 +109,7 @@ def seed_data():
             root_cause=inv_data["root_cause"],
             solution=inv_data["solution"],
             keywords="authentication mobile timeout session login",
-            engineer="Test Engineer",
+            engineer=user.full_name or user.username,
             modules_involved="Auth Service",
             confidence=0.85
         )

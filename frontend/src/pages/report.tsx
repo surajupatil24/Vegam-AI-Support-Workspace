@@ -157,8 +157,8 @@ A. Investigation Metadata
 
 B. Communication Templates
    - Client Response: Ready for use
-   - Redmine Update: Ready for use
-   - Closure Comment: Ready for use
+   - Suggested Redmine Note (Copy Only): Ready for use
+   - Manual Closure Note (Reference Only): Ready for use
    - Follow-up Actions: 10-item checklist prepared
 
 C. Quality Metrics
@@ -205,7 +205,7 @@ E. Next Steps Checklist
       <header className="bg-slate-900 border-b border-slate-800 px-6 py-4 sticky top-0 z-50">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <Link href="/workspace">
+            <Link href="/investigation">
               <button className="p-2 hover:bg-slate-800 rounded-lg transition">
                 <LuArrowLeft className="w-5 h-5" />
               </button>

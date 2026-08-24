@@ -18,6 +18,7 @@ class User(Base):
 
     tickets = relationship("Ticket", back_populates="assignee")
     investigations = relationship("Investigation", back_populates="engineer")
+    feedback_entries = relationship("FeedbackEntry", back_populates="submitted_by")
 
 
 class Ticket(Base):
@@ -40,6 +41,7 @@ class Ticket(Base):
     assignee = relationship("User", back_populates="tickets")
     investigations = relationship("Investigation", back_populates="ticket")
     comments = relationship("TicketComment", back_populates="ticket")
+    attachments = relationship("TicketAttachment", back_populates="ticket")
 
 
 class Investigation(Base):
@@ -92,6 +94,27 @@ class TicketComment(Base):
     ticket = relationship("Ticket", back_populates="comments")
 
 
+class TicketAttachment(Base):
+    __tablename__ = "ticket_attachments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    ticket_id = Column(Integer, ForeignKey("tickets.id"), index=True, nullable=False)
+    redmine_attachment_id = Column(Integer, unique=True, index=True, nullable=False)
+    original_filename = Column(String(500), nullable=False)
+    stored_filename = Column(String(500), nullable=True)
+    storage_path = Column(String(1000), nullable=True)
+    remote_url = Column(String(1000), nullable=True)
+    mime_type = Column(String(255), nullable=True)
+    file_extension = Column(String(50), nullable=True)
+    file_size_bytes = Column(Integer, nullable=True)
+    author = Column(String(255), nullable=True)
+    description = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    ticket = relationship("Ticket", back_populates="attachments")
+
+
 class KnowledgeBase(Base):
     __tablename__ = "knowledge_base"
 
@@ -115,6 +138,93 @@ class KnowledgeBase(Base):
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class KnowledgeAsset(Base):
+    __tablename__ = "knowledge_assets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    batch_id = Column(String(64), index=True)
+    title = Column(String(500), nullable=False)
+    description = Column(Text)
+    notes = Column(Text)
+    knowledge_type = Column(String(100), nullable=False)
+    source_kind = Column(String(50), nullable=False, default="document")
+
+    plant_names = Column(JSON, nullable=False)
+    module_names = Column(JSON, nullable=False)
+    tags = Column(JSON)
+
+    original_filename = Column(String(500), nullable=True)
+    stored_filename = Column(String(500), nullable=True)
+    storage_path = Column(String(1000), nullable=True)
+    mime_type = Column(String(255), nullable=True)
+    file_extension = Column(String(50), nullable=True)
+    file_size_bytes = Column(Integer, nullable=True)
+
+    ingest_status = Column(String(50), nullable=False, default="stored")
+    uploaded_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    uploaded_by = relationship("User")
+
+
+class TicketConversationMessage(Base):
+    __tablename__ = "ticket_conversation_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    ticket_id = Column(Integer, ForeignKey("tickets.id"), index=True, nullable=False)
+    author = Column(String(255), nullable=False)
+    role = Column(String(50), nullable=False)  # engineer, ai
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    ticket = relationship("Ticket")
+
+
+class TicketConversationState(Base):
+    __tablename__ = "ticket_conversation_states"
+
+    id = Column(Integer, primary_key=True, index=True)
+    ticket_id = Column(Integer, ForeignKey("tickets.id"), unique=True, index=True, nullable=False)
+    client_reply = Column(Text)
+    redmine_comment = Column(Text)
+    closure_notes = Column(Text)
+    recommended_fix = Column(JSON)
+    engineer_review_summary = Column(Text)
+    inferred_plants = Column(JSON)
+    knowledge_suggestions = Column(JSON)
+    template_name = Column(String(255))
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    ticket = relationship("Ticket")
+
+
+class FeedbackEntry(Base):
+    __tablename__ = "feedback_entries"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(50), nullable=False)
+    area_screen = Column(String(25), nullable=False)
+    what_happened = Column(Text, nullable=False)
+    how_should_improve = Column(String(100), nullable=True)
+    impact_level = Column(String(20), nullable=True)
+
+    original_filename = Column(String(500), nullable=False)
+    stored_filename = Column(String(500), nullable=False)
+    storage_path = Column(String(1000), nullable=False)
+    mime_type = Column(String(255), nullable=True)
+    file_size_bytes = Column(Integer, nullable=True)
+
+    submitted_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    submitted_by = relationship("User", back_populates="feedback_entries")
 
 
 class AIProvider(Base):
