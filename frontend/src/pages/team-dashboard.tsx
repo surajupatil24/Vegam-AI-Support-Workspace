@@ -216,7 +216,7 @@ export default function TeamLeadDashboard() {
             <div>
               <h1 className="text-3xl font-bold text-white">Teams</h1>
               <p className="mt-1 text-sm text-slate-400">
-                Each row is grouped from Redmine query 577 by the exact assignee shown in your tasks list.
+                All tickets from enabled projects are grouped by their Redmine assignee.
               </p>
             </div>
           </div>
@@ -259,7 +259,7 @@ export default function TeamLeadDashboard() {
             icon={<LuUsers className="h-5 w-5 text-blue-300" />}
             label="Assignee Rows"
             value={teamData?.total_members ?? members.length}
-            helper="Distinct assignees returned by query 577"
+            helper="Assignees across enabled projects"
             tone="blue"
           />
           <MetricCard
@@ -302,7 +302,7 @@ export default function TeamLeadDashboard() {
           <div className="rounded-3xl border border-slate-800 bg-slate-900/60 px-6 py-12 text-center">
             <h2 className="text-xl font-semibold text-white">No team members found</h2>
             <p className="mt-2 text-sm text-slate-400">
-              The Redmine query did not return any assigned tickets to group into rows.
+              No tickets were returned for the enabled projects. Check Project Visibility Control in Settings.
             </p>
           </div>
         ) : (

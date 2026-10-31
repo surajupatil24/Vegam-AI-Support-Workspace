@@ -45,6 +45,8 @@ out/
 .npm
 
 # Database
+backups/
+backend/feedback_uploads/
 *.db
 *.sqlite
 *.sqlite3

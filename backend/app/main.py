@@ -1,4 +1,6 @@
+import asyncio
 from contextlib import asynccontextmanager
+from contextlib import suppress
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -6,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import router as api_router
 from app.config import settings
 from app.db.database import Base, engine
+from app.utils.redmine_cache import run_redmine_cache_scheduler
 
 # Create database tables (gracefully handle connection errors)
 try:
@@ -19,8 +22,20 @@ except Exception as e:
 async def lifespan(app: FastAPI):
     # Use ASCII-only startup logs so Windows console encoding does not crash boot.
     print("Samixa AI Support Assistant starting...")
-    yield
-    print("Samixa shutting down...")
+    cache_stop_event = asyncio.Event()
+    cache_task = asyncio.create_task(
+        run_redmine_cache_scheduler(cache_stop_event),
+        name="redmine-cache-refresh",
+    )
+
+    try:
+        yield
+    finally:
+        cache_stop_event.set()
+        cache_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await cache_task
+        print("Samixa shutting down...")
 
 
 app = FastAPI(

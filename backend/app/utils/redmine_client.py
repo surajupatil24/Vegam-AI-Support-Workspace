@@ -264,7 +264,10 @@ class RedmineClient:
                 return data.get("issues", [])
         except Exception as e:
             logger.error(f"Failed to get user issues: {e}")
-            return []
+            # A failed request must not look like a successful response with no
+            # assignments. Callers use an empty list to clear stale assignments,
+            # so propagate failures and let them retain the last successful cache.
+            raise
 
     async def get_query_issues(self, query_id: int, limit: int = 100, sort: str = "assigned_to,id:desc") -> List[Dict]:
         """Get issues from a saved Redmine query, following pagination if needed."""
@@ -301,7 +304,28 @@ class RedmineClient:
             logger.error(f"Failed to get query issues for query_id={query_id}: {e}")
             return []
 
-    async def get_projects(self, limit: int = 100) -> List[Dict]:
+    async def get_project_issues(self, project_id: int) -> List[Dict]:
+        """Read every project ticket, independent of saved-query filters."""
+        issues: List[Dict] = []
+        offset = 0
+        headers, auth = self._build_auth_request_context()
+        async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
+            while True:
+                response = await client.get(
+                    f"{self.base_url}/issues.json", headers=headers, auth=auth,
+                    params={"project_id": project_id, "subproject_id": "!*",
+                            "status_id": "*", "limit": 100, "offset": offset,
+                            "sort": "assigned_to,id:desc"},
+                )
+                response.raise_for_status()
+                data = response.json()
+                page = data.get("issues", [])
+                issues.extend(page)
+                offset += len(page)
+                if not page or offset >= data.get("total_count", offset):
+                    return issues
+
+    async def get_projects(self, limit: int = 100, raise_on_error: bool = False) -> List[Dict]:
         """Get Redmine projects, following pagination until all projects are collected."""
         url = f"{self.base_url}/projects.json"
         collected_projects: List[Dict] = []
@@ -332,6 +356,8 @@ class RedmineClient:
             return collected_projects
         except Exception as e:
             logger.error(f"Failed to get Redmine projects: {e}")
+            if raise_on_error:
+                raise
             return []
 
     async def update_issue(self, issue_id: int, data: Dict) -> bool:

@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     # Redmine
     REDMINE_BASE_URL: str = "http://redmine.example.com"
     REDMINE_API_KEY: str = ""
+    REDMINE_CACHE_REFRESH_SECONDS: int = 300
 
     # AI Providers
     OPENAI_API_KEY: str = ""

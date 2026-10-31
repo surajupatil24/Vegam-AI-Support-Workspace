@@ -2,7 +2,7 @@ import logging
 from collections import OrderedDict
 from typing import Dict, List, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.api.routes.auth import require_current_user
@@ -15,7 +15,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-TEAM_QUERY_ID = 577
 FINAL_STATUS_KEYWORDS = ("closed", "resolved", "completed", "rejected", "withdrawn", "cancelled")
 CRITICAL_PRIORITY_KEYWORDS = ("critical", "urgent", "high")
 MODULE_FIELD_NAMES = {"module", "basf module"}
@@ -126,11 +125,33 @@ async def get_team_ticket_rows(
     db: Session = Depends(get_db),
 ):
     """
-    Return ticket rows grouped by the exact Redmine assignee names from the shared query.
+    Return all enabled-project tickets grouped by their Redmine assignee.
     """
     redmine = RedmineClient()
-    issues = await redmine.get_query_issues(query_id=TEAM_QUERY_ID, limit=100, sort="assigned_to,id:desc")
     project_selection = read_redmine_project_selection(db)
+    issues = []
+    try:
+        project_ids = set(project_selection.get("enabled_project_ids") or [])
+        # Saved IDs work even when a project is absent from the active catalog.
+        # Resolve the catalog only for the default or legacy name-only selection.
+        if not project_selection.get("configured") or (
+            not project_ids and project_selection.get("enabled_project_names")
+        ):
+            projects = await redmine.get_projects(raise_on_error=True)
+            project_ids = {
+                project["id"] for project in projects
+                if is_redmine_project_enabled(project.get("id"), project.get("name", ""), project_selection)
+            }
+        seen_ids = set()
+        for project_id in sorted(project_ids):
+            for issue in await redmine.get_project_issues(project_id):
+                issue_id = issue.get("id")
+                if issue_id is not None and issue_id not in seen_ids:
+                    seen_ids.add(issue_id)
+                    issues.append(issue)
+    except Exception:
+        logger.exception("Failed to load enabled-project team tickets")
+        raise HTTPException(status_code=502, detail="Could not load all team tickets from Redmine. Please retry.")
 
     grouped_rows: "OrderedDict[str, Dict]" = OrderedDict()
     viewer_name_keys = {
@@ -187,7 +208,7 @@ async def get_team_ticket_rows(
 
     return {
         "viewer_id": current_user.id,
-        "query_id": TEAM_QUERY_ID,
+        "source": "enabled_projects",
         "total_members": len(team_members),
         "total_tickets": total_tickets,
         "pending_tickets": pending_tickets,
